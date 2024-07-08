@@ -895,7 +895,7 @@ class Material(URDFType):
     @color.setter
     def color(self, value):
         if value is not None:
-            value = np.asanyarray(value).astype(np.float)
+            value = np.asanyarray(value).astype(np.float64)
             value = np.clip(value, 0.0, 1.0)
             if value.shape != (4,):
                 raise ValueError('Color must be a (4,) float')
@@ -3543,6 +3543,149 @@ class URDF(URDFType):
             v.render_lock.release()
 
             time.sleep(1.0 / fps)
+
+
+    def animate_to_video(self, cfg_trajectory=None, loop_time=3.0, use_collision=False, video_path='animation.mp4', width=1920, height=1080, camera_pose=None):
+        """Animate the URDF through a configuration trajectory and save it as a video file.
+
+        Parameters
+        ----------
+        cfg_trajectory : dict or (m,n) float, optional
+            Configuration trajectory mapping, similar to the animate function.
+            
+        loop_time : float, default 3.0
+            Time to loop the animation for, in seconds.
+            
+        use_collision : bool, default False
+            If True, visualizes the collision geometry.
+
+        video_path : str, default 'animation.mp4'
+            File path for the output video.
+
+        width : int, default 1920
+            Video width in pixels.
+
+        height : int, default 1080
+            Video height in pixels.
+
+        camera_pose : array_like, optional
+            A 4x4 matrix specifying the camera pose. If not provided, defaults are used.
+        """
+        
+        import imageio
+        import pyrender
+
+        ct = cfg_trajectory
+
+        traj_len = None  # Length of the trajectory in steps
+        ct_np = {}       # Numpyified trajectory
+
+        # If trajectory not specified, articulate between the limits.
+        if ct is None:
+            lb, ub = self.joint_limit_cfgs
+            if len(lb) > 0:
+                traj_len = 2
+                ct_np = {k: np.array([lb[k], ub[k]]) for k in lb}
+
+        # If it is specified, parse it and extract the trajectory length.
+        elif isinstance(ct, dict):
+            if len(ct) > 0:
+                for k in ct:
+                    val = np.asanyarray(ct[k]).astype(np.float64)
+                    if traj_len is None:
+                        traj_len = len(val)
+                    elif traj_len != len(val):
+                        raise ValueError('Trajectories must be same length')
+                    ct_np[k] = val
+        elif isinstance(ct, (list, tuple, np.ndarray)):
+            ct = np.asanyarray(ct).astype(np.float64)
+            if ct.ndim == 1:
+                ct = ct.reshape(-1, 1)
+            if ct.ndim != 2 or ct.shape[1] != len(self.actuated_joints):
+                raise ValueError('Cfg trajectory must have entry for each joint')
+            ct_np = {j: ct[:,i] for i, j in enumerate(self.actuated_joints)}
+        else:
+            raise TypeError('Invalid type for cfg_trajectory: {}'
+                            .format(type(cfg_trajectory)))
+
+        # If there isn't a trajectory to render, just show the model and exit
+        if len(ct_np) == 0 or traj_len < 2:
+            self.show(use_collision=use_collision)
+            return
+
+        # Create an array of times that loops from 0 to 1 and back to 0
+        fps = 30.0
+        n_steps = int(loop_time * fps / 2.0)
+        times = np.linspace(0.0, 1.0, n_steps)
+        times = np.hstack((times, np.flip(times)))
+
+        # Create bin edges in the range [0, 1] for each trajectory step
+        bins = np.arange(traj_len) / (float(traj_len) - 1.0)
+
+        # Compute alphas for each time
+        right_inds = np.digitize(times, bins, right=True)
+        right_inds[right_inds == 0] = 1
+        alphas = ((bins[right_inds] - times) /
+                  (bins[right_inds] - bins[right_inds - 1]))
+
+        # Create the new interpolated trajectory
+        new_ct = {}
+        for k in ct_np:
+            new_ct[k] = (alphas * ct_np[k][right_inds - 1] +
+                         (1.0 - alphas) * ct_np[k][right_inds])
+
+        # Create the scene
+        if use_collision:
+            fk = self.collision_trimesh_fk()
+        else:
+            fk = self.visual_trimesh_fk()
+
+        node_map = {}       
+
+        renderer = pyrender.OffscreenRenderer(viewport_width=width, viewport_height=height)
+        scene = pyrender.Scene()
+        for tm in fk:
+            pose = fk[tm]
+            mesh = pyrender.Mesh.from_trimesh(tm, smooth=False)
+            node = scene.add(mesh, pose=pose)
+            node_map[tm] = node
+
+        # Get base pose to focus on
+        blp = self.link_fk(links=[self.base_link])[self.base_link]
+
+        # Add lighting
+        light = pyrender.DirectionalLight(color=np.ones(3), intensity=5.0)
+        light_pose = blp.copy()
+        light_pose[:3, 3] += [0, 0, 3]
+        scene.add(light, pose=light_pose)
+                
+        camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0, aspectRatio=1.333)
+
+        if camera_pose is None:
+            camera_pose = blp.copy()
+            camera_pose[:3, 3] += [0, 0, 2]
+
+        scene.add(camera, pose=camera_pose)
+
+        frames = []
+        for i in range(len(times)):
+            cfg = {k: new_ct[k][i] for k in new_ct}
+
+            if use_collision:
+                fk = self.collision_trimesh_fk(cfg=cfg)
+            else:
+                fk = self.visual_trimesh_fk(cfg=cfg)
+
+            for mesh in fk:
+                pose = fk[mesh]
+                node_map[mesh].matrix = pose
+
+            color, depth = renderer.render(scene)
+            frames.append(color)
+            
+
+        renderer.delete()
+        imageio.mimwrite(video_path, frames, fps=fps)
 
     def show(self, cfg=None, use_collision=False):
         """Visualize the URDF in a given configuration.
