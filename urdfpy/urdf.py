@@ -3484,9 +3484,10 @@ class URDF(URDFType):
 
         # Create an array of times that loops from 0 to 1 and back to 0
         fps = 30.0
-        n_steps = int(loop_time * fps / 2.0)
+        n_steps = int(loop_time * fps)
+        # n_steps = int(loop_time * fps / 2.0)
         times = np.linspace(0.0, 1.0, n_steps)
-        times = np.hstack((times, np.flip(times)))
+        # times = np.hstack((times, np.flip(times)))
 
         # Create bin edges in the range [0, 1] for each trajectory step
         bins = np.arange(traj_len) / (float(traj_len) - 1.0)
@@ -3615,9 +3616,10 @@ class URDF(URDFType):
 
         # Create an array of times that loops from 0 to 1 and back to 0
         fps = 30.0
-        n_steps = int(loop_time * fps / 2.0)
+        n_steps = int(loop_time * fps)
+        # n_steps = int(loop_time * fps / 2.0)
         times = np.linspace(0.0, 1.0, n_steps)
-        times = np.hstack((times, np.flip(times)))
+        # times = np.hstack((times, np.flip(times)))
 
         # Create bin edges in the range [0, 1] for each trajectory step
         bins = np.arange(traj_len) / (float(traj_len) - 1.0)
