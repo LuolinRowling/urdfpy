@@ -395,7 +395,7 @@ class Cylinder(URDFType):
         """list of :class:`~trimesh.base.Trimesh` : The triangular meshes
         that represent this object.
         """
-        if len(self._meshes) == 0:
+        if self._meshes is None or len(self._meshes) == 0:
             self._meshes = [trimesh.creation.cylinder(
                 radius=self.radius, height=self.length
             )]
