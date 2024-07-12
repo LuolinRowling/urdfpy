@@ -3716,6 +3716,14 @@ class URDF(URDFType):
             scene.add(mesh, pose=pose)
         pyrender.Viewer(scene, use_raymond_lighting=True)
 
+    def get_fk_result(self, cfg=None, use_collision=False):
+        if use_collision:
+            fk = self.collision_trimesh_fk(cfg=cfg)
+        else:
+            fk = self.visual_trimesh_fk(cfg=cfg)
+
+        return fk
+
     def copy(self, name=None, prefix='', scale=None, collision_only=False):
         """Make a deep copy of the URDF.
 
@@ -3873,6 +3881,14 @@ class URDF(URDFType):
         node = tree.getroot()
         return URDF._from_xml(node, path)
 
+    @staticmethod
+    def load_by_xml_str(xml_str, path):
+        parser = ET.XMLParser(remove_comments=True, remove_blank_text=True)
+        tree = ET.ElementTree(ET.fromstring(xml_str, parser=parser))
+
+        node = tree.getroot()
+        return URDF._from_xml(node, path)
+    
     def _validate_joints(self):
         """Raise an exception of any joints are invalidly specified.
 
